@@ -9,7 +9,7 @@ var Slack           = require('node-slack');
 var slack           = new Slack(process.env.SLACK_WEBHOOK_URL);
 var track           = [];
 var track_max       = 2;
-var track_interval  = 15 * 60000;
+var track_interval  = 60 * 60000;
 var kickstarter_url = process.env.KICKSTARTER_URL;
 
 function to_spaces (body) {
@@ -52,8 +52,16 @@ function get_backers_count (body) {
 	}
 };
 
-function get_goal_amount (body) {
+function get_amount_raised (body) {
 	try {	
+		return parseFloat(body.split('data-pledged="')[1].split('"')[0]);
+	} catch (err) {
+		return 'could not extract';
+	}
+};
+
+function get_goal_amount (body) {
+	try {
 		return parseFloat(body.split('data-goal="')[1].split('"')[0]);
 	} catch (err) {
 		return 'could not extract';
@@ -194,33 +202,27 @@ function get_new_comments (previous, current) {
 };
 
 function do_track () {
-	request.get(kickstarter_url, function (err, res, body) {
+	var ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36';
+
+	request.get(kickstarter_url, { headers: { 'User-Agent' : ua }}, function (err, res, body) {
 		var ret = {
 			title:             get_title(body),
 			short_description: get_short_description(body),
 			backers_count:     get_backers_count(body),
 			goal_amount:       get_goal_amount(body),
 			goal_percent:      get_goal_percent(body),
+			amount_raised:     get_amount_raised(body),
 			currency:          get_currency(body),
 			duration:          get_duration(body),
 			end_date:          get_end_date(body),
 			hours_remaining:   get_hours_remaining(body),
 		};
-		request.get(kickstarter_url + '/comments', function (err, res, body) {
-			ret.comments = get_comments(body);
-			track.push(ret);
-			if (track.length > track_max) {
-				track.shift();
-			};
-			var new_comments = get_new_comments((track[track.length - 2] || null), ret);
-			for (var new_comment_idx = 0; new_comment_idx < new_comments.length; new_comment_idx++) {
-				var new_comment = new_comments[new_comment_idx];
-				slack.send({
-				    text:     '*' + new_comment.name + '*:\n```\n' + new_comment.text + '```\n_' + new_comment.ago + '_\n' + new_comment.comment_url,
-				    username: 'Kickslack'
-				});
-			}
-		});
+
+		slack.send({
+		    text: "We've raised *$" + ret.amount_raised.toLocaleString() + "* from *" + ret.backers_count + " backers*!",
+            username: 'Kickslack'
+		})
+
 	});
 };
 
